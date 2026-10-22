@@ -17,7 +17,6 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/fsouza/fake-gcs-server/internal/backend"
-	"github.com/gorilla/mux"
 )
 
 // https://cloud.google.com/storage/docs/buckets#naming
@@ -37,7 +36,7 @@ func (s *Server) CreateBucket(name string) {
 }
 
 func (s *Server) updateBucket(r *http.Request) jsonResponse {
-	bucketName := unescapeMuxVars(mux.Vars(r))["bucketName"]
+	bucketName := unescapeMuxVars(Vars(r))["bucketName"]
 	attrsToUpdate, err := getBucketAttrsToUpdate(r.Body)
 	if err != nil {
 		return jsonResponse{errorMessage: err.Error(), status: http.StatusBadRequest}
@@ -225,7 +224,7 @@ func (s *Server) listBuckets(r *http.Request) jsonResponse {
 }
 
 func (s *Server) getBucket(r *http.Request) jsonResponse {
-	bucketName := unescapeMuxVars(mux.Vars(r))["bucketName"]
+	bucketName := unescapeMuxVars(Vars(r))["bucketName"]
 	bucket, err := s.backend.GetBucket(bucketName)
 	if err != nil {
 		return jsonResponse{status: http.StatusNotFound}
@@ -234,7 +233,7 @@ func (s *Server) getBucket(r *http.Request) jsonResponse {
 }
 
 func (s *Server) getBucketStorageLayout(r *http.Request) jsonResponse {
-	bucketName := unescapeMuxVars(mux.Vars(r))["bucketName"]
+	bucketName := unescapeMuxVars(Vars(r))["bucketName"]
 	_, err := s.backend.GetBucket(bucketName)
 	if err != nil {
 		return jsonResponse{status: http.StatusNotFound}
@@ -243,7 +242,7 @@ func (s *Server) getBucketStorageLayout(r *http.Request) jsonResponse {
 }
 
 func (s *Server) deleteBucket(r *http.Request) jsonResponse {
-	bucketName := unescapeMuxVars(mux.Vars(r))["bucketName"]
+	bucketName := unescapeMuxVars(Vars(r))["bucketName"]
 	err := s.backend.DeleteBucket(bucketName)
 	if err == backend.BucketNotFound {
 		return jsonResponse{status: http.StatusNotFound}
@@ -266,7 +265,7 @@ func validateBucketName(bucketName string) error {
 }
 
 func (s *Server) listBucketACL(r *http.Request) jsonResponse {
-	bucketName := unescapeMuxVars(mux.Vars(r))["bucketName"]
+	bucketName := unescapeMuxVars(Vars(r))["bucketName"]
 	bucket, err := s.backend.GetBucket(bucketName)
 	if err != nil {
 		return jsonResponse{status: http.StatusNotFound}
@@ -275,7 +274,7 @@ func (s *Server) listBucketACL(r *http.Request) jsonResponse {
 }
 
 func (s *Server) setBucketACL(r *http.Request) jsonResponse {
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 	bucketName := vars["bucketName"]
 	bucket, err := s.backend.GetBucket(bucketName)
 	if err != nil {
@@ -312,7 +311,7 @@ func (s *Server) setBucketACL(r *http.Request) jsonResponse {
 }
 
 func (s *Server) getBucketACL(r *http.Request) jsonResponse {
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 	bucket, err := s.backend.GetBucket(vars["bucketName"])
 	if err != nil {
 		return jsonResponse{status: http.StatusNotFound}
@@ -327,7 +326,7 @@ func (s *Server) getBucketACL(r *http.Request) jsonResponse {
 }
 
 func (s *Server) deleteBucketACL(r *http.Request) jsonResponse {
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 	bucketName := vars["bucketName"]
 	bucket, err := s.backend.GetBucket(bucketName)
 	if err != nil {

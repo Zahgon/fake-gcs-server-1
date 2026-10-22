@@ -25,7 +25,6 @@ import (
 	"github.com/fsouza/fake-gcs-server/internal/backend"
 	"github.com/fsouza/fake-gcs-server/internal/notification"
 	"github.com/fsouza/fake-gcs-server/internal/urlhelper"
-	"github.com/gorilla/mux"
 )
 
 var errInvalidGeneration = errors.New("invalid generation ID")
@@ -676,7 +675,7 @@ func (s *Server) objectWithGenerationOnValidGeneration(bucketName, objectName, g
 }
 
 func (s *Server) listObjects(r *http.Request) jsonResponse {
-	bucketName := unescapeMuxVars(mux.Vars(r))["bucketName"]
+	bucketName := unescapeMuxVars(Vars(r))["bucketName"]
 	var maxResults int
 	var err error
 	if maxResultsStr := r.URL.Query().Get("maxResults"); maxResultsStr != "" {
@@ -721,7 +720,7 @@ func (s *Server) listObjects(r *http.Request) jsonResponse {
 }
 
 func (s *Server) xmlListObjects(r *http.Request) xmlResponse {
-	bucketName := unescapeMuxVars(mux.Vars(r))["bucketName"]
+	bucketName := unescapeMuxVars(Vars(r))["bucketName"]
 
 	opts := ListOptions{
 		Prefix:    r.URL.Query().Get("prefix"),
@@ -781,7 +780,7 @@ func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	handler := jsonToHTTPHandler(func(r *http.Request) jsonResponse {
-		vars := unescapeMuxVars(mux.Vars(r))
+		vars := unescapeMuxVars(Vars(r))
 
 		projection := storage.ProjectionNoACL
 		if r.URL.Query().Has("projection") {
@@ -826,7 +825,7 @@ func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteObject(r *http.Request) jsonResponse {
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 	generationStr := r.FormValue("generation")
 	generation, err := strconv.ParseInt(generationStr, 10, 64)
 	if err != nil && generationStr != "" {
@@ -865,7 +864,7 @@ func (s *Server) deleteObject(r *http.Request) jsonResponse {
 // objectForACLRequest resolves the object an ACL request addresses,
 // honoring its generation parameter the way object reads do.
 func (s *Server) objectForACLRequest(r *http.Request) (StreamingObject, *jsonResponse) {
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 	obj, err := s.objectWithGenerationOnValidGeneration(vars["bucketName"], vars["objectName"], r.FormValue("generation"))
 	if err != nil {
 		statusCode := http.StatusNotFound
@@ -890,7 +889,7 @@ func (s *Server) listObjectACL(r *http.Request) jsonResponse {
 }
 
 func (s *Server) deleteObjectACL(r *http.Request) jsonResponse {
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 
 	obj, errResponse := s.objectForACLRequest(r)
 	if errResponse != nil {
@@ -917,7 +916,7 @@ func (s *Server) deleteObjectACL(r *http.Request) jsonResponse {
 }
 
 func (s *Server) getObjectACL(r *http.Request) jsonResponse {
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 
 	obj, errResponse := s.objectForACLRequest(r)
 	if errResponse != nil {
@@ -990,7 +989,7 @@ func (s *Server) setObjectACL(r *http.Request) jsonResponse {
 }
 
 func (s *Server) rewriteObject(r *http.Request) jsonResponse {
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 	obj, err := s.objectWithGenerationOnValidGeneration(vars["sourceBucket"], vars["sourceObject"], r.FormValue("sourceGeneration"))
 	// Calling Close before checking err is okay on objects, and the object
 	// may need to be closed whether or not there's an error.
@@ -1086,7 +1085,7 @@ func (s *Server) rewriteObject(r *http.Request) jsonResponse {
 }
 
 func (s *Server) downloadObject(w http.ResponseWriter, r *http.Request) {
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 	obj, err := s.objectWithGenerationOnValidGeneration(vars["bucketName"], vars["objectName"], r.FormValue("generation"))
 	// Calling Close before checking err is okay on objects, and the object
 	// may need to be closed whether or not there's an error.
@@ -1353,7 +1352,7 @@ func (s *Server) maybeUpdateRetention(bucketName, objectName string, newRetentio
 }
 
 func (s *Server) patchObject(r *http.Request) jsonResponse {
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 	bucketName := vars["bucketName"]
 	objectName := vars["objectName"]
 
@@ -1428,7 +1427,7 @@ func (s *Server) updateObject(r *http.Request) jsonResponse {
 		return s.patchObject(r)
 	}
 
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 	bucketName := vars["bucketName"]
 	objectName := vars["objectName"]
 
@@ -1495,7 +1494,7 @@ func (s *Server) updateObject(r *http.Request) jsonResponse {
 }
 
 func (s *Server) composeObject(r *http.Request) jsonResponse {
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 	bucketName := vars["bucketName"]
 	destinationObject := vars["destinationObject"]
 

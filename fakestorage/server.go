@@ -31,7 +31,6 @@ import (
 	"github.com/fsouza/fake-gcs-server/internal/checksum"
 	"github.com/fsouza/fake-gcs-server/internal/notification"
 	"github.com/gorilla/handlers"
-	"github.com/gorilla/mux"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 )
@@ -252,97 +251,99 @@ func unescapeMuxVars(vars map[string]string) map[string]string {
 
 func (s *Server) buildMuxer() {
 	const apiPrefix = "/storage/v1"
-	handler := mux.NewRouter().SkipClean(true).UseEncodedPath()
+	rt := &router{}
 
 	// healthcheck
-	handler.Path("/_internal/healthcheck").Methods(http.MethodGet).HandlerFunc(s.healthcheck)
+	rt.handle("/_internal/healthcheck", http.HandlerFunc(s.healthcheck), http.MethodGet)
 
-	routers := []*mux.Router{
-		handler.PathPrefix(apiPrefix).Subrouter(),
-		handler.MatcherFunc(s.publicHostMatcher).PathPrefix(apiPrefix).Subrouter(),
+	// The JSON API is served twice: once on the default host under the API
+	// prefix, and once on the configured public host. decorate applies the
+	// host-selecting predicate for the second pass.
+	registerAPI := func(decorate func(*route) *route) {
+		reg := func(path string, h http.Handler, methods ...string) *route {
+			return decorate(rt.handle(apiPrefix+path, h, methods...))
+		}
+		reg("/b", jsonToHTTPHandler(s.listBuckets), http.MethodGet)
+		reg("/b/", jsonToHTTPHandler(s.listBuckets), http.MethodGet)
+		reg("/b", jsonToHTTPHandler(s.createBucketByPost), http.MethodPost)
+		reg("/b/", jsonToHTTPHandler(s.createBucketByPost), http.MethodPost)
+		reg("/b/{bucketName}", jsonToHTTPHandler(s.getBucket), http.MethodGet)
+		reg("/b/{bucketName}/storageLayout", jsonToHTTPHandler(s.getBucketStorageLayout), http.MethodGet)
+		reg("/b/{bucketName}", jsonToHTTPHandler(s.updateBucket), http.MethodPatch)
+		reg("/b/{bucketName}", jsonToHTTPHandler(s.updateBucket), http.MethodPost).withHeader("X-HTTP-Method-Override", "PATCH")
+		reg("/b/{bucketName}", jsonToHTTPHandler(s.deleteBucket), http.MethodDelete)
+		reg("/b/{bucketName}/acl", jsonToHTTPHandler(s.listBucketACL), http.MethodGet)
+		reg("/b/{bucketName}/acl", jsonToHTTPHandler(s.setBucketACL), http.MethodPost)
+		reg("/b/{bucketName}/acl/{entity}", jsonToHTTPHandler(s.getBucketACL), http.MethodGet)
+		reg("/b/{bucketName}/acl/{entity}", jsonToHTTPHandler(s.setBucketACL), http.MethodPut)
+		reg("/b/{bucketName}/acl/{entity}", jsonToHTTPHandler(s.deleteBucketACL), http.MethodDelete)
+		reg("/b/{bucketName}/o", jsonToHTTPHandler(s.listObjects), http.MethodGet)
+		reg("/b/{bucketName}/o/", jsonToHTTPHandler(s.listObjects), http.MethodGet)
+		reg("/b/{bucketName}/o/{objectName:.+}", jsonToHTTPHandler(s.patchObject), http.MethodPatch)
+		reg("/b/{bucketName}/o/{objectName:.+}/acl", jsonToHTTPHandler(s.listObjectACL), http.MethodGet)
+		reg("/b/{bucketName}/o/{objectName:.+}/acl", jsonToHTTPHandler(s.setObjectACL), http.MethodPost)
+		reg("/b/{bucketName}/o/{objectName:.+}/acl/{entity}", jsonToHTTPHandler(s.deleteObjectACL), http.MethodDelete)
+		reg("/b/{bucketName}/o/{objectName:.+}/acl/{entity}", jsonToHTTPHandler(s.getObjectACL), http.MethodGet)
+		reg("/b/{bucketName}/o/{objectName:.+}/acl/{entity}", jsonToHTTPHandler(s.setObjectACL), http.MethodPut)
+		reg("/b/{bucketName}/o/{objectName:.+}", http.HandlerFunc(s.getObject), http.MethodGet, http.MethodHead)
+		reg("/b/{bucketName}/o/{objectName:.+}", jsonToHTTPHandler(s.deleteObject), http.MethodDelete)
+		reg("/b/{sourceBucket}/o/{sourceObject:.+}/{copyType:rewriteTo|copyTo}/b/{destinationBucket}/o/{destinationObject:.+}", jsonToHTTPHandler(s.rewriteObject), http.MethodPost)
+		reg("/b/{bucketName}/o/{destinationObject:.+}/compose", jsonToHTTPHandler(s.composeObject), http.MethodPost)
+		reg("/b/{bucketName}/o/{objectName:.+}", jsonToHTTPHandler(s.updateObject), http.MethodPut, http.MethodPost)
+		reg("/b/{bucketName}/notificationConfigs", jsonToHTTPHandler(s.insertNotification), http.MethodPost)
+		reg("/b/{bucketName}/notificationConfigs", jsonToHTTPHandler(s.listNotifications), http.MethodGet)
+		reg("/b/{bucketName}/notificationConfigs/{notificationId}", jsonToHTTPHandler(s.getNotification), http.MethodGet)
+		reg("/b/{bucketName}/notificationConfigs/{notificationId}", jsonToHTTPHandler(s.deleteNotification), http.MethodDelete)
 	}
-
-	for _, r := range routers {
-		r.Path("/b").Methods(http.MethodGet).HandlerFunc(jsonToHTTPHandler(s.listBuckets))
-		r.Path("/b/").Methods(http.MethodGet).HandlerFunc(jsonToHTTPHandler(s.listBuckets))
-		r.Path("/b").Methods(http.MethodPost).HandlerFunc(jsonToHTTPHandler(s.createBucketByPost))
-		r.Path("/b/").Methods(http.MethodPost).HandlerFunc(jsonToHTTPHandler(s.createBucketByPost))
-		r.Path("/b/{bucketName}").Methods(http.MethodGet).HandlerFunc(jsonToHTTPHandler(s.getBucket))
-		r.Path("/b/{bucketName}/storageLayout").Methods(http.MethodGet).HandlerFunc(jsonToHTTPHandler(s.getBucketStorageLayout))
-		r.Path("/b/{bucketName}").Methods(http.MethodPatch).HandlerFunc(jsonToHTTPHandler(s.updateBucket))
-		r.Path("/b/{bucketName}").Methods(http.MethodPost).Headers("X-HTTP-Method-Override", "PATCH").HandlerFunc(jsonToHTTPHandler(s.updateBucket))
-		r.Path("/b/{bucketName}").Methods(http.MethodDelete).HandlerFunc(jsonToHTTPHandler(s.deleteBucket))
-		r.Path("/b/{bucketName}/acl").Methods(http.MethodGet).HandlerFunc(jsonToHTTPHandler(s.listBucketACL))
-		r.Path("/b/{bucketName}/acl").Methods(http.MethodPost).HandlerFunc(jsonToHTTPHandler(s.setBucketACL))
-		r.Path("/b/{bucketName}/acl/{entity}").Methods(http.MethodGet).HandlerFunc(jsonToHTTPHandler(s.getBucketACL))
-		r.Path("/b/{bucketName}/acl/{entity}").Methods(http.MethodPut).HandlerFunc(jsonToHTTPHandler(s.setBucketACL))
-		r.Path("/b/{bucketName}/acl/{entity}").Methods(http.MethodDelete).HandlerFunc(jsonToHTTPHandler(s.deleteBucketACL))
-		r.Path("/b/{bucketName}/o").Methods(http.MethodGet).HandlerFunc(jsonToHTTPHandler(s.listObjects))
-		r.Path("/b/{bucketName}/o/").Methods(http.MethodGet).HandlerFunc(jsonToHTTPHandler(s.listObjects))
-		r.Path("/b/{bucketName}/o/{objectName:.+}").Methods(http.MethodPatch).HandlerFunc(jsonToHTTPHandler(s.patchObject))
-		r.Path("/b/{bucketName}/o/{objectName:.+}/acl").Methods(http.MethodGet).HandlerFunc(jsonToHTTPHandler(s.listObjectACL))
-		r.Path("/b/{bucketName}/o/{objectName:.+}/acl").Methods(http.MethodPost).HandlerFunc(jsonToHTTPHandler(s.setObjectACL))
-		r.Path("/b/{bucketName}/o/{objectName:.+}/acl/{entity}").Methods(http.MethodDelete).HandlerFunc(jsonToHTTPHandler(s.deleteObjectACL))
-		r.Path("/b/{bucketName}/o/{objectName:.+}/acl/{entity}").Methods(http.MethodGet).HandlerFunc(jsonToHTTPHandler(s.getObjectACL))
-		r.Path("/b/{bucketName}/o/{objectName:.+}/acl/{entity}").Methods(http.MethodPut).HandlerFunc(jsonToHTTPHandler(s.setObjectACL))
-		r.Path("/b/{bucketName}/o/{objectName:.+}").Methods(http.MethodGet, http.MethodHead).HandlerFunc(s.getObject)
-		r.Path("/b/{bucketName}/o/{objectName:.+}").Methods(http.MethodDelete).HandlerFunc(jsonToHTTPHandler(s.deleteObject))
-		r.Path("/b/{sourceBucket}/o/{sourceObject:.+}/{copyType:rewriteTo|copyTo}/b/{destinationBucket}/o/{destinationObject:.+}").Methods(http.MethodPost).HandlerFunc(jsonToHTTPHandler(s.rewriteObject))
-		r.Path("/b/{bucketName}/o/{destinationObject:.+}/compose").Methods(http.MethodPost).HandlerFunc(jsonToHTTPHandler(s.composeObject))
-		r.Path("/b/{bucketName}/o/{objectName:.+}").Methods(http.MethodPut, http.MethodPost).HandlerFunc(jsonToHTTPHandler(s.updateObject))
-		r.Path("/b/{bucketName}/notificationConfigs").Methods(http.MethodPost).HandlerFunc(jsonToHTTPHandler(s.insertNotification))
-		r.Path("/b/{bucketName}/notificationConfigs").Methods(http.MethodGet).HandlerFunc(jsonToHTTPHandler(s.listNotifications))
-		r.Path("/b/{bucketName}/notificationConfigs/{notificationId}").Methods(http.MethodGet).HandlerFunc(jsonToHTTPHandler(s.getNotification))
-		r.Path("/b/{bucketName}/notificationConfigs/{notificationId}").Methods(http.MethodDelete).HandlerFunc(jsonToHTTPHandler(s.deleteNotification))
-	}
+	identity := func(r *route) *route { return r }
+	onPublicHost := func(r *route) *route { return r.withMatcher(s.publicHostMatcher) }
+	registerAPI(identity)
+	registerAPI(onPublicHost)
 
 	// Internal / update server configuration
-	handler.Path("/_internal/config").Methods(http.MethodPut).HandlerFunc(jsonToHTTPHandler(s.updateServerConfig))
-	handler.MatcherFunc(s.publicHostMatcher).Path("/_internal/config").Methods(http.MethodPut).HandlerFunc(jsonToHTTPHandler(s.updateServerConfig))
-	handler.Path("/_internal/reseed").Methods(http.MethodPut, http.MethodPost).HandlerFunc(jsonToHTTPHandler(s.reseedServer))
-	handler.Path("/_internal/delete_all").Methods(http.MethodPost).HandlerFunc(jsonToHTTPHandler(s.deleteAllFiles))
+	rt.handle("/_internal/config", jsonToHTTPHandler(s.updateServerConfig), http.MethodPut)
+	rt.handle("/_internal/config", jsonToHTTPHandler(s.updateServerConfig), http.MethodPut).withMatcher(s.publicHostMatcher)
+	rt.handle("/_internal/reseed", jsonToHTTPHandler(s.reseedServer), http.MethodPut, http.MethodPost)
+	rt.handle("/_internal/delete_all", jsonToHTTPHandler(s.deleteAllFiles), http.MethodPost)
 	// Internal - end
 
-	// XML API
-	xmlApiRouters := []*mux.Router{
-		handler.Host(fmt.Sprintf("{bucketName}.%s", s.publicHost)).Subrouter(),
-		handler.MatcherFunc(s.publicHostMatcher).PathPrefix(`/{bucketName}`).Subrouter(),
-	}
-	for _, r := range xmlApiRouters {
-		r.Path("/").Methods(http.MethodGet).HandlerFunc(xmlToHTTPHandler(s.xmlListObjects))
-		r.Path("").Methods(http.MethodGet).HandlerFunc(xmlToHTTPHandler(s.xmlListObjects))
-	}
-
 	bucketHost := fmt.Sprintf("{bucketName}.%s", s.publicHost)
-	handler.Host(bucketHost).Path("/{objectName:.+}").Methods(http.MethodGet, http.MethodHead).HandlerFunc(s.downloadObject)
-	handler.Path("/download/storage/v1/b/{bucketName}/o/{objectName:.+}").Methods(http.MethodGet, http.MethodHead).HandlerFunc(s.downloadObject)
-	handler.Path("/upload/storage/v1/b/{bucketName}/o").Methods(http.MethodPost).HandlerFunc(jsonToHTTPHandler(s.insertObject))
-	handler.Path("/upload/storage/v1/b/{bucketName}/o/").Methods(http.MethodPost).HandlerFunc(jsonToHTTPHandler(s.insertObject))
-	handler.Path("/upload/storage/v1/b/{bucketName}/o").Methods(http.MethodPut).HandlerFunc(jsonToHTTPHandler(s.uploadFileContent))
-	handler.Path("/upload/storage/v1/b/{bucketName}/o/").Methods(http.MethodPut).HandlerFunc(jsonToHTTPHandler(s.uploadFileContent))
-	handler.Path("/upload/storage/v1/b/{bucketName}/o").Methods(http.MethodDelete).HandlerFunc(jsonToHTTPHandler(s.deleteResumableUpload))
-	handler.Path("/upload/storage/v1/b/{bucketName}/o/").Methods(http.MethodDelete).HandlerFunc(jsonToHTTPHandler(s.deleteResumableUpload))
-	handler.Path("/upload/resumable/{uploadId}").Methods(http.MethodPut, http.MethodPost).HandlerFunc(jsonToHTTPHandler(s.uploadFileContent))
+
+	// XML API, on the bucket-as-subdomain host and path-style on the public host.
+	rt.handle("/", xmlToHTTPHandler(s.xmlListObjects), http.MethodGet).withHost(bucketHost)
+	rt.handle("", xmlToHTTPHandler(s.xmlListObjects), http.MethodGet).withHost(bucketHost)
+	rt.handle("/{bucketName}/", xmlToHTTPHandler(s.xmlListObjects), http.MethodGet).withMatcher(s.publicHostMatcher)
+	rt.handle("/{bucketName}", xmlToHTTPHandler(s.xmlListObjects), http.MethodGet).withMatcher(s.publicHostMatcher)
+
+	rt.handle("/{objectName:.+}", http.HandlerFunc(s.downloadObject), http.MethodGet, http.MethodHead).withHost(bucketHost)
+	rt.handle("/download/storage/v1/b/{bucketName}/o/{objectName:.+}", http.HandlerFunc(s.downloadObject), http.MethodGet, http.MethodHead)
+	rt.handle("/upload/storage/v1/b/{bucketName}/o", jsonToHTTPHandler(s.insertObject), http.MethodPost)
+	rt.handle("/upload/storage/v1/b/{bucketName}/o/", jsonToHTTPHandler(s.insertObject), http.MethodPost)
+	rt.handle("/upload/storage/v1/b/{bucketName}/o", jsonToHTTPHandler(s.uploadFileContent), http.MethodPut)
+	rt.handle("/upload/storage/v1/b/{bucketName}/o/", jsonToHTTPHandler(s.uploadFileContent), http.MethodPut)
+	rt.handle("/upload/storage/v1/b/{bucketName}/o", jsonToHTTPHandler(s.deleteResumableUpload), http.MethodDelete)
+	rt.handle("/upload/storage/v1/b/{bucketName}/o/", jsonToHTTPHandler(s.deleteResumableUpload), http.MethodDelete)
+	rt.handle("/upload/resumable/{uploadId}", jsonToHTTPHandler(s.uploadFileContent), http.MethodPut, http.MethodPost)
 
 	// Batch endpoint
-	handler.MatcherFunc(s.publicHostMatcher).Path("/batch/storage/v1").Methods(http.MethodPost).HandlerFunc(s.handleBatchCall)
-	handler.Path("/batch/storage/v1").Methods(http.MethodPost).HandlerFunc(s.handleBatchCall)
+	rt.handle("/batch/storage/v1", http.HandlerFunc(s.handleBatchCall), http.MethodPost).withMatcher(s.publicHostMatcher)
+	rt.handle("/batch/storage/v1", http.HandlerFunc(s.handleBatchCall), http.MethodPost)
 
-	handler.MatcherFunc(s.publicHostMatcher).Path("/{bucketName}/{objectName:.+}").Methods(http.MethodGet, http.MethodHead).HandlerFunc(s.downloadObject)
-	handler.Host("{bucketName:.+}").Path("/{objectName:.+}").Methods(http.MethodGet, http.MethodHead).HandlerFunc(s.downloadObject)
+	rt.handle("/{bucketName}/{objectName:.+}", http.HandlerFunc(s.downloadObject), http.MethodGet, http.MethodHead).withMatcher(s.publicHostMatcher)
+	rt.handle("/{objectName:.+}", http.HandlerFunc(s.downloadObject), http.MethodGet, http.MethodHead).withHost("{bucketName:.+}")
 
 	// Form Uploads
-	handler.Host(s.publicHost).Path("/{bucketName}").MatcherFunc(matchFormData).Methods(http.MethodPost, http.MethodPut).HandlerFunc(xmlToHTTPHandler(s.insertFormObject))
-	handler.Host(bucketHost).MatcherFunc(matchFormData).Methods(http.MethodPost, http.MethodPut).HandlerFunc(xmlToHTTPHandler(s.insertFormObject))
+	rt.handle("/{bucketName}", xmlToHTTPHandler(s.insertFormObject), http.MethodPost, http.MethodPut).withHost(s.publicHost).withMatcher(matchFormData)
+	rt.handleAny(xmlToHTTPHandler(s.insertFormObject), http.MethodPost, http.MethodPut).withHost(bucketHost).withMatcher(matchFormData)
 
 	// Signed URLs (upload and download)
-	handler.MatcherFunc(s.publicHostMatcher).Path("/{bucketName}/{objectName:.+}").Methods(http.MethodPost, http.MethodPut).HandlerFunc(jsonToHTTPHandler(s.insertObject))
-	handler.MatcherFunc(s.publicHostMatcher).Path("/{bucketName}/{objectName:.+}").Methods(http.MethodGet, http.MethodHead).HandlerFunc(s.getObject)
-	handler.MatcherFunc(s.publicHostMatcher).Path("/{bucketName}/{objectName:.+}").Methods(http.MethodDelete).HandlerFunc(jsonToHTTPHandler(s.deleteObject))
-	handler.Host(bucketHost).Path("/{objectName:.+}").Methods(http.MethodPost, http.MethodPut).HandlerFunc(jsonToHTTPHandler(s.insertObject))
-	handler.Host("{bucketName:.+}").Path("/{objectName:.+}").Methods(http.MethodPost, http.MethodPut).HandlerFunc(jsonToHTTPHandler(s.insertObject))
+	rt.handle("/{bucketName}/{objectName:.+}", jsonToHTTPHandler(s.insertObject), http.MethodPost, http.MethodPut).withMatcher(s.publicHostMatcher)
+	rt.handle("/{bucketName}/{objectName:.+}", http.HandlerFunc(s.getObject), http.MethodGet, http.MethodHead).withMatcher(s.publicHostMatcher)
+	rt.handle("/{bucketName}/{objectName:.+}", jsonToHTTPHandler(s.deleteObject), http.MethodDelete).withMatcher(s.publicHostMatcher)
+	rt.handle("/{objectName:.+}", jsonToHTTPHandler(s.insertObject), http.MethodPost, http.MethodPut).withHost(bucketHost)
+	rt.handle("/{objectName:.+}", jsonToHTTPHandler(s.insertObject), http.MethodPost, http.MethodPut).withHost("{bucketName:.+}")
 
-	s.handler = handler
+	s.handler = rt
 }
 
 func (s *Server) seed() ([]backend.StreamingObject, error) {
@@ -456,7 +457,7 @@ func (s *Server) healthcheck(w http.ResponseWriter, r *http.Request) {
 }
 
 // publicHostMatcher matches incoming requests against the currently specified server publicHost.
-func (s *Server) publicHostMatcher(r *http.Request, rm *mux.RouteMatch) bool {
+func (s *Server) publicHostMatcher(r *http.Request) bool {
 	if strings.Contains(s.publicHost, ":") || !strings.Contains(r.Host, ":") {
 		return r.Host == s.publicHost
 	}
@@ -604,7 +605,7 @@ func requestCompressHandler(h http.Handler) http.Handler {
 	})
 }
 
-func matchFormData(r *http.Request, _ *mux.RouteMatch) bool {
+func matchFormData(r *http.Request) bool {
 	contentType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	return contentType == "multipart/form-data"
 }

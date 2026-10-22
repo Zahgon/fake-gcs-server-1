@@ -24,7 +24,6 @@ import (
 	"github.com/fsouza/fake-gcs-server/internal/backend"
 	"github.com/fsouza/fake-gcs-server/internal/checksum"
 	"github.com/fsouza/fake-gcs-server/internal/urlhelper"
-	"github.com/gorilla/mux"
 )
 
 const (
@@ -148,7 +147,7 @@ func (s *Server) insertObject(r *http.Request) jsonResponse {
 		}
 	}
 
-	bucketName := unescapeMuxVars(mux.Vars(r))["bucketName"]
+	bucketName := unescapeMuxVars(Vars(r))["bucketName"]
 
 	if _, err := s.backend.GetBucket(bucketName); err != nil {
 		return jsonResponse{status: http.StatusNotFound}
@@ -183,7 +182,7 @@ func (s *Server) handleBodyBasedResumableUpload(r *http.Request, body *resumable
 	// Extract bucket name from JSON or URL
 	bucketName := body.Bucket
 	if bucketName == "" {
-		bucketName = unescapeMuxVars(mux.Vars(r))["bucketName"]
+		bucketName = unescapeMuxVars(Vars(r))["bucketName"]
 	}
 	if bucketName == "" {
 		return jsonResponse{
@@ -302,7 +301,7 @@ func parseJSONBody(r *http.Request) (*resumableUploadBody, error) {
 }
 
 func (s *Server) insertFormObject(r *http.Request) xmlResponse {
-	bucketName := unescapeMuxVars(mux.Vars(r))["bucketName"]
+	bucketName := unescapeMuxVars(Vars(r))["bucketName"]
 
 	if err := r.ParseMultipartForm(32 << 20); nil != err {
 		return xmlResponse{errorMessage: "invalid form", status: http.StatusBadRequest}
@@ -458,7 +457,7 @@ func (s notImplementedSeeker) Seek(offset int64, whence int) (int64, error) {
 
 func (s *Server) signedUpload(bucketName string, r *http.Request) jsonResponse {
 	defer r.Body.Close()
-	name := unescapeMuxVars(mux.Vars(r))["objectName"]
+	name := unescapeMuxVars(Vars(r))["objectName"]
 	predefinedACL := r.URL.Query().Get("predefinedAcl")
 	contentEncoding := r.URL.Query().Get("contentEncoding")
 	customTime := r.URL.Query().Get("customTime")

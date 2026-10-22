@@ -5,11 +5,10 @@ import (
 	"net/http"
 
 	"github.com/fsouza/fake-gcs-server/internal/notification"
-	"github.com/gorilla/mux"
 )
 
 func (s *Server) insertNotification(r *http.Request) jsonResponse {
-	bucketName := unescapeMuxVars(mux.Vars(r))["bucketName"]
+	bucketName := unescapeMuxVars(Vars(r))["bucketName"]
 
 	if _, err := s.backend.GetBucket(bucketName); err != nil {
 		return jsonResponse{status: http.StatusNotFound}
@@ -28,7 +27,7 @@ func (s *Server) insertNotification(r *http.Request) jsonResponse {
 }
 
 func (s *Server) getNotification(r *http.Request) jsonResponse {
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 	bucketName := vars["bucketName"]
 	notificationID := vars["notificationId"]
 
@@ -40,7 +39,7 @@ func (s *Server) getNotification(r *http.Request) jsonResponse {
 }
 
 func (s *Server) listNotifications(r *http.Request) jsonResponse {
-	bucketName := unescapeMuxVars(mux.Vars(r))["bucketName"]
+	bucketName := unescapeMuxVars(Vars(r))["bucketName"]
 
 	if _, err := s.backend.GetBucket(bucketName); err != nil {
 		return jsonResponse{status: http.StatusNotFound}
@@ -54,7 +53,7 @@ func (s *Server) listNotifications(r *http.Request) jsonResponse {
 }
 
 func (s *Server) deleteNotification(r *http.Request) jsonResponse {
-	vars := unescapeMuxVars(mux.Vars(r))
+	vars := unescapeMuxVars(Vars(r))
 	bucketName := vars["bucketName"]
 	notificationID := vars["notificationId"]
 
